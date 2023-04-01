@@ -23,3 +23,4 @@ cityscapes_colormap = np.array([
  [  0,   0,   0]])
 
 cityscapes_instance_label_name = ['person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle']
+cityscapes_base_instance_threshold = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
