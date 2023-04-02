@@ -1,0 +1,9 @@
+pcdet:
+  ros__parameters:
+    config_file: "cfgs/cityscape_retinanet_50.yaml"
+    model_file: "checkpoints/cvpr_realtime_pano_cityscapes_standalone_no_prefix.pth"
+    allow_memory_fractioning: False
+    allow_score_thresholding: True
+    device_id: 0
+    device_memory_fraction: 6.0
+    threshold_array: [0.7, 0.35, 0.5] # [Car, Pedestrian, Bicycle]

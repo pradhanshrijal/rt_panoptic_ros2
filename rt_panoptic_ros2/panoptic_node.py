@@ -28,21 +28,37 @@ from vision_msgs.msg import Detection2D
 from vision_msgs.msg import BoundingBox2D
 from vision_msgs.msg import ObjectHypothesisWithPose
 
+import sys
 import copy
 import argparse
 import torch
 import numpy as np
+import cv2
+from cv_bridge import CvBridge
 from PIL import Image as PIL_Image
 from torchvision.models.detection.image_list import ImageList
 
 from realtime_panoptic.config import cfg
 import realtime_panoptic.data.panoptic_transform as P
-from realtime_panoptic.utils.visualization import random_color
+from realtime_panoptic.utils.visualization import random_color, draw_mask
 
 from datasets.dataset_selection import DatasetSelection
 
 class PanopticROS(Node):
+    """! The PanopticROS class.
+    Defines the ROS 2 Wrapper class for RT_Panoptic.
+    """
     def __init__(self):
+        """! The PCDetROS class initializer.
+        @param config_file Path to the configuration file for realtime_panoptic.
+        @param package_folder_path Path to the configuration folder, generally inside the ROS 2 Package.
+        @param model_file Path to model used for Detection.
+        @param allow_memory_fractioning Boolean to activate fraction CUDA Memory.
+        @param allow_score_thresholding Boolean to activate score thresholding.
+        @param device_id CUDA Device ID.
+        @param device_memory_fraction Use only the input fraction of the allowed CUDA Memory.
+        @param threshold_array Cutoff threshold array for detections.
+        """
         super().__init__('rt_panoptic')
         self.__initBaseParams__()
         self.__initObjects__()
@@ -78,7 +94,7 @@ class PanopticROS(Node):
         out_box.size_y = h
         return out_box
     
-    def __getInstanceImage__(predictions, original_image, label_id_to_names, fade_weight=0.8, score_thr=None):
+    def __getInstanceImage__(self, predictions, original_image, colormap, fade_weight=0.8, score_thr=None):
         # TODO
         """Log a single detection result for visualization.
 
@@ -141,7 +157,7 @@ class PanopticROS(Node):
         else:
             scores = [1.0] * len(boxes)
         # predicted label starts from 1 as 0 is reserved for background.
-        label_names = [label_id_to_names[i-1] for i in labels.tolist()]
+        label_names = [colormap[i-1] for i in labels.tolist()]
 
         text_template = "{}: {:.2f}"
 
@@ -194,9 +210,9 @@ class PanopticROS(Node):
             panoptic_result, _ = self.__net__.forward(input_image_list)
             instance_detection = [o.to('cpu') for o in panoptic_result["instance_segmentation_result"]]
             if(self.__allow_score_thresholding__):
-                instace_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__thr_arr__)
+                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__thr_arr__)
             else:
-                instace_image, segmentation_image, instancecs = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__dataset__.score_thr)
+                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__dataset__.score_thr)
         return instance_image, segmentation_image, instances
 
     def __initParams__(self):
@@ -205,7 +221,7 @@ class PanopticROS(Node):
             self.__dataset__ = DatasetSelection(self.__config_params__)
         except RuntimeError as err:
             self.get_logger().error('%s' % err)
-            break
+            sys.exit(1)
     
     def __readModelConfig__(self):
         self.__config_params__ = cfg.merge_from_file(self.__config_file__)
@@ -240,7 +256,6 @@ class PanopticROS(Node):
 
         self.__config_file__ = self.__package_folder_path__ + "/" + self.__config_file__
         self.__model_file__ = self.__package_folder_path__ + "/" + self.__model_file__
-        self.__logger__ = common_utils.create_logger()
         self.__initParams__()
         self.__readModelConfig__()
     
@@ -250,7 +265,7 @@ class PanopticROS(Node):
                                                         self.__imageCB__,
                                                         10)
         self.__pub_pan_image__ = self.create_publisher(Image,
-                                                    "output_image",
+                                                    "pan_image",
                                                     10)
         self.__pub_seg_image__ = self.create_publisher(Image,
                                                     "seg_image",
