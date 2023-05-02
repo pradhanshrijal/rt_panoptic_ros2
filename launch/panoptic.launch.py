@@ -39,7 +39,7 @@ def generate_launch_description():
 
     declare_input_topic_cmd = DeclareLaunchArgument(
         'input_topic',
-        default_value='/kitti/image',
+        default_value='/kitti/image/color/left',
         description='Input image'
     )
 

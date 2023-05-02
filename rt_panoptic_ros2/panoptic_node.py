@@ -42,7 +42,9 @@ from realtime_panoptic.config import cfg
 import realtime_panoptic.data.panoptic_transform as P
 from realtime_panoptic.utils.visualization import random_color, draw_mask
 
-from datasets.dataset_selection import DatasetSelection
+from .datasets.dataset_selection import DatasetSelection
+
+SIZE = (2048, 1024)
 
 class PanopticROS(Node):
     """! The PanopticROS class.
@@ -72,7 +74,7 @@ class PanopticROS(Node):
         pan_pub_msg = self.__bridge__.cv2_to_imgmsg(panoptic_result, "passthrough")
         pan_pub_msg.header.frame_id = image_msg.header.frame_id
         pan_pub_msg.header.stamp = self.get_clock().now().to_msg()
-        seg_pub_msg = self.__bridge__.cv2_to_imgmsg(segmentation_result, "passthrough")
+        seg_pub_msg = self.__bridge__.cv2_to_imgmsg(segmentation_result.astype("uint8"), "passthrough")
         seg_pub_msg.header.frame_id = image_msg.header.frame_id
         seg_pub_msg.header.stamp = self.get_clock().now().to_msg()
 
@@ -80,21 +82,34 @@ class PanopticROS(Node):
         self.__pub_seg_image__.publish(seg_pub_msg)
         self.__pub_det__.publish(det_msg)
     
+    def __getLabelIndex__(self, label):
+        if label == 'car':
+            a = 0
+        elif label == 'pedestrian':
+            a = 1
+        else:
+            a = 2
+        return a
+
     def __getBBox__(self, box):
         TO_REMOVE = 1
         out_box = BoundingBox2D()
-        box_temp = box.convert("xywh")
-        xmin, ymin, w, h = box.bbox.split(1, dim=-1)
-        xcenter = xmin + int((w - TO_REMOVE).clamp(min=0) / 2)
-        ycenter = ymin + int((h - TO_REMOVE).clamp(min=0) / 2)
+        #box_temp = box.convert("xywh")
+        box_temp = box[:4].tolist()
+        #xmin, ymin, xmax, ymax = box.bbox.split(1, dim=-1)
+        xmin, ymin, xmax, ymax = box_temp
+        w = xmax - xmin + TO_REMOVE
+        h = ymax - ymin + TO_REMOVE
+        xcenter = xmin + ((w - TO_REMOVE) / 2)
+        ycenter = ymin + ((h - TO_REMOVE) / 2)
         out_box.center.position.x = xcenter
         out_box.center.position.y = ycenter
-        out_box.center.theta = 0
-        out_box.size_x = w
-        out_box.size_y = h
+        out_box.center.theta = 0.0
+        out_box.size_x = float(w)
+        out_box.size_y = float(h)
         return out_box
     
-    def __getInstanceImage__(self, predictions, original_image, colormap, fade_weight=0.8, score_thr=None):
+    def __getInstanceImage__(self, predictions, segs, original_image, labelmap, colormap, fade_weight=0.8, score_thr=None):
         # TODO
         """Log a single detection result for visualization.
 
@@ -132,9 +147,11 @@ class PanopticROS(Node):
         original_image_height, original_image_width,_ = original_image.shape
 
         # Color per-pixel predictions
-        predictions_numpy = predictions.cpu().numpy().astype('uint8')
+        predictions_numpy = segs.cpu().numpy().astype('uint8')
         colored_predictions_numpy = colormap[predictions_numpy.flatten()]
-        colored_predictions_numpy = colored_predictions_numpy.reshape(original_image_height, original_image_width, 3)
+        #colored_predictions_numpy = colored_predictions_numpy.reshape(original_image_height, original_image_width, 3)
+        colored_predictions_numpy = colored_predictions_numpy.reshape(SIZE[1], SIZE[0], 3)
+        #colored_predictions_numpy = colored_predictions_numpy[:, :, ::-1].copy() 
 
         # overlay_boxes
         visualized_image = copy.copy(np.array(original_image))
@@ -157,12 +174,13 @@ class PanopticROS(Node):
         else:
             scores = [1.0] * len(boxes)
         # predicted label starts from 1 as 0 is reserved for background.
-        label_names = [colormap[i-1] for i in labels.tolist()]
+        label_names = [labelmap[i-1] for i in labels.tolist()]
 
         text_template = "{}: {:.2f}"
 
         for box, color, score, mask, label in zip(boxes, colors, scores, masks, label_names):
-            if score < score_thr:
+            label_index = self.__getLabelIndex__(label)
+            if score < score_thr[label_index]:
                 continue
             box = box.to(torch.int64)
             color = random_color(color)
@@ -179,19 +197,23 @@ class PanopticROS(Node):
             output_msg.detections.append(instance)
 
             if mask is not None:
-                thresh = (mask > score_thr).cpu().numpy().astype('uint8')
+                thresh = (mask > score_thr[label_index]).cpu().numpy().astype('uint8')
                 visualized_image, color = draw_mask(visualized_image, thresh)
 
             x, y = box[:2]
+            org_input = (int(x.int()), int(y.int()))
             s = text_template.format(label, score)
-            cv2.putText(visualized_image, s, (x, y), cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
+            cv2.putText(visualized_image, s, org_input, cv2.FONT_HERSHEY_SIMPLEX, .5, (255, 255, 255), 1)
 
             top_left, bottom_right = box[:2].tolist(), box[2:].tolist()
             visualized_image = cv2.rectangle(visualized_image, tuple(top_left), tuple(bottom_right), tuple(color), 1)
         return visualized_image, colored_predictions_numpy, output_msg
 
     def __runDetectionInstance__(self, input):
-        data = {'image': input}
+        img = cv2.cvtColor(input, cv2.COLOR_BGR2RGB)
+        im_pil = PIL_Image.fromarray(img)
+        im_pil = im_pil.resize(SIZE)
+        data = {'image': im_pil}
 
         # pre-processing
         normalize_transform = P.Normalize(mean=self.__config_params__.input.pixel_mean,
@@ -206,25 +228,29 @@ class PanopticROS(Node):
         data = transform(data)
         with torch.no_grad():
             input_image_list = ImageList([data['image'].to(self.__device__)], 
-                                            image_sizes=[input.size[::-1]])
+                                            image_sizes=[im_pil.size[::-1]])
             panoptic_result, _ = self.__net__.forward(input_image_list)
             instance_detection = [o.to('cpu') for o in panoptic_result["instance_segmentation_result"]]
+            seg_logics = [o.to('cpu') for o in panoptic_result["semantic_segmentation_result"]]
+            seg_prob = [torch.argmax(semantic_logit, dim=0) for semantic_logit in seg_logics]
+
             if(self.__allow_score_thresholding__):
-                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__thr_arr__)
+                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], seg_prob[0], im_pil, self.__dataset__.label_map, self.__dataset__.color_map, score_thr=self.__thr_arr__)
             else:
-                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], input, self.__dataset__.label_map, score_thr=self.__dataset__.score_thr)
+                instance_image, segmentation_image, instances = self.__getInstanceImage__(instance_detection[0], seg_prob[0], im_pil, self.__dataset__.label_map, self.__dataset__.color_map, score_thr=self.__dataset__.score_thr)
         return instance_image, segmentation_image, instances
 
     def __initParams__(self):
         self.__bridge__ = CvBridge()
+    
+    def __readModelConfig__(self):
+        self.__config_params__ = cfg
+        self.__config_params__.merge_from_file(self.__config_file__)
         try:
             self.__dataset__ = DatasetSelection(self.__config_params__)
         except RuntimeError as err:
             self.get_logger().error('%s' % err)
             sys.exit(1)
-    
-    def __readModelConfig__(self):
-        self.__config_params__ = cfg.merge_from_file(self.__config_file__)
         torch.cuda.set_device(self.__device_id__)
         torch.backends.cudnn.benchmark = False
         self.__device__ = torch.device('cuda:'+ str(self.__device_id__) if torch.cuda.is_available() else "cpu")

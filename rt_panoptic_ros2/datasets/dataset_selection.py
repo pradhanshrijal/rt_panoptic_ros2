@@ -1,7 +1,7 @@
 from realtime_panoptic.config import cfg
 from realtime_panoptic.models.rt_pano_net import RTPanoNet
 
-from datasets.cityscapes import cityscapes_colormap, cityscapes_instance_label_name, cityscapes_base_instance_threshold
+from .cityscapes import cityscapes_colormap, cityscapes_instance_label_name, cityscapes_base_instance_threshold
 
 class DatasetSelection():
     def __init__(self, config):
@@ -16,6 +16,7 @@ class DatasetSelection():
                 fpn_post_nms_top_n=config.model.panoptic.fpn_post_nms_top_n,
                 instance_id_range=config.model.panoptic.instance_id_range)
             self.label_map = cityscapes_instance_label_name
+            self.color_map = cityscapes_colormap
             self.score_thr = cityscapes_base_instance_threshold
         else:
             raise RuntimeError("Model Invalid")

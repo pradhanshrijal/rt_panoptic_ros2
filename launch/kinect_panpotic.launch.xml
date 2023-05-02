@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="input_image" default="/kinect2/hd/image_color"/>
+
+    <include file="$(find-pkg-share rt_panoptic_ros2)/launch/panoptic.launch.py">
+        <arg name="input_topic" value="$(var input_image)" />
+    </include>
+</launch>
