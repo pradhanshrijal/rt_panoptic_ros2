@@ -3,8 +3,7 @@ ROS 2 Wrapper for realtime_panoptic
 
 This is a ROS 2 Wrapper for [`[Real-Time Panoptic Segmentation from Dense Detections]`](https://github.com/TRI-ML/realtime_panoptic).
 
-**Warning**
-Only Runs at 1.2 Hz
+:warning: Only Runs at 1.2 Hz
 
 **Test System**
 - Computation: i9-12900K, GPU 4080
@@ -16,4 +15,4 @@ Only Runs at 1.2 Hz
 
 **Status**
 - Tested with the original weigths.
-- Only runs at 1.2 Hz at best
+- Only runs at 1.2 Hz at best.
