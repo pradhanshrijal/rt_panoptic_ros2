@@ -180,7 +180,7 @@ class PanopticROS(Node):
 
         for box, color, score, mask, label in zip(boxes, colors, scores, masks, label_names):
             label_index = self.__getLabelIndex__(label)
-            if score < score_thr[label_index]:
+            if score < score_thr[label_index] and self.__allow_score_thresholding__ is True:
                 continue
             box = box.to(torch.int64)
             color = random_color(color)
@@ -197,7 +197,10 @@ class PanopticROS(Node):
             output_msg.detections.append(instance)
 
             if mask is not None:
-                thresh = (mask > score_thr[label_index]).cpu().numpy().astype('uint8')
+                if self.__allow_score_thresholding__ is True:
+                    thresh = (mask > score_thr[label_index]).cpu().numpy().astype('uint8')
+                else:
+                    thresh = 0.0
                 visualized_image, color = draw_mask(visualized_image, thresh)
 
             x, y = box[:2]
