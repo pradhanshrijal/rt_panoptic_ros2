@@ -51,7 +51,7 @@ class PanopticROS(Node):
     Defines the ROS 2 Wrapper class for RT_Panoptic.
     """
     def __init__(self):
-        """! The PCDetROS class initializer.
+        """! The PanopticROS class initializer.
         @param config_file Path to the configuration file for realtime_panoptic.
         @param package_folder_path Path to the configuration folder, generally inside the ROS 2 Package.
         @param model_file Path to model used for Detection.
